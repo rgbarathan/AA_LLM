@@ -1,7 +1,18 @@
 import requests
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Google Gemini API endpoint
-API_KEY = "AIzaSyCTCIjTodpzZ7KxFQgNtr_8qIwU7ppw3bs"  # Replace with your Google API key
+API_KEY = os.getenv("GEMINI_API_KEY")
+if not API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY not found in environment variables. "
+        "Please create a .env file with your API key. "
+        "See .env.example for reference."
+    )
 API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={API_KEY}"
 
 

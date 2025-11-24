@@ -1,0 +1,47 @@
+{
+  "local_files": [
+    {
+      "path": "comcast_docs/BXT_Fulfillment_Galaxy.pdf",
+      "topic": "BXT-fulfillment",
+      "domain": "comcast",
+      "enabled": false,
+      "description": "BXT Fulfillment Galaxy (export Confluence page to PDF and save here)"
+    },
+    {
+      "path": "docs/architecture_guide.pdf",
+      "topic": "architecture",
+      "domain": "company",
+      "enabled": false,
+      "description": "Company architecture guide (add your file path)"
+    }
+  ],
+  "directories": [
+    {
+      "path": "comcast_docs/",
+      "topic": "comcast-docs",
+      "domain": "comcast",
+      "recursive": true,
+      "enabled": false,
+      "description": "Comcast Confluence exports (save PDFs here)"
+    },
+    {
+      "path": "docs/",
+      "topic": "documentation",
+      "domain": "company",
+      "recursive": true,
+      "enabled": false,
+      "description": "Documentation directory (add your directory path)"
+    }
+  ],
+  "_instructions": {
+    "how_to_use": [
+      "1. Export your Confluence/SharePoint pages to PDF",
+      "2. Save PDFs to local folders (e.g., comcast_docs/)",
+      "3. Add file paths to 'local_files' or directory paths to 'directories' above",
+      "4. Set 'enabled': true for sources you want to load",
+      "5. Run: python3 load_knowledge_sources.py",
+      "6. Or the system will auto-load enabled sources on startup"
+    ],
+    "note": "For Confluence and SharePoint content, export pages to PDF for best results"
+  }
+}

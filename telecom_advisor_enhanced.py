@@ -8,9 +8,20 @@ from typing import List, Dict, Tuple
 import PyPDF2
 from rank_bm25 import BM25Okapi
 import re
+import docx  # python-docx for Word documents
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Google Gemini API Configuration
-API_KEY = "AIzaSyCTCIjTodpzZ7KxFQgNtr_8qIwU7ppw3bs"
+API_KEY = os.getenv("GEMINI_API_KEY")
+if not API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY not found in environment variables. "
+        "Please create a .env file with your API key. "
+        "See .env.example for reference."
+    )
 API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={API_KEY}"
 
 # Initialize ChromaDB client and embedding function
@@ -319,6 +330,133 @@ def upload_pdf_to_knowledge_base(pdf_path: str, topic: str = "uploaded", domain:
         return 0
 
 
+def upload_word_doc_to_knowledge_base(doc_path: str, topic: str = "uploaded", domain: str = "telecom") -> int:
+    """
+    Upload a Word document (.docx) to the knowledge base.
+    
+    Args:
+        doc_path: Path to Word document
+        topic: Topic tag for the document
+        domain: Domain tag for the document
+        
+    Returns:
+        Number of chunks added
+    """
+    try:
+        doc = docx.Document(doc_path)
+        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+        
+        if text.strip():
+            metadata = [{"topic": topic, "domain": domain, "source": os.path.basename(doc_path)}]
+            chunks_added = add_knowledge_to_db([text], metadata)
+            print(f"✓ Successfully added Word document: {os.path.basename(doc_path)}")
+            return chunks_added
+        else:
+            print(f"✗ No text found in document: {os.path.basename(doc_path)}")
+            return 0
+    except Exception as e:
+        print(f"✗ Error uploading Word document: {e}")
+        return 0
+
+
+def upload_text_file_to_knowledge_base(file_path: str, topic: str = "uploaded", domain: str = "telecom") -> int:
+    """
+    Upload a text file (.txt, .md) to the knowledge base.
+    
+    Args:
+        file_path: Path to text file
+        topic: Topic tag for the document
+        domain: Domain tag for the document
+        
+    Returns:
+        Number of chunks added
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        
+        if text.strip():
+            metadata = [{"topic": topic, "domain": domain, "source": os.path.basename(file_path)}]
+            chunks_added = add_knowledge_to_db([text], metadata)
+            print(f"✓ Successfully added text file: {os.path.basename(file_path)}")
+            return chunks_added
+        else:
+            print(f"✗ No text found in file: {os.path.basename(file_path)}")
+            return 0
+    except Exception as e:
+        print(f"✗ Error uploading text file: {e}")
+        return 0
+
+
+def upload_multiple_files(file_paths: List[str], topic: str = "batch", domain: str = "telecom") -> int:
+    """
+    Upload multiple files at once to the knowledge base.
+    Supports PDF, Word, and text files.
+    
+    Args:
+        file_paths: List of file paths
+        topic: Topic tag for all files
+        domain: Domain tag for all files
+        
+    Returns:
+        Total number of chunks added
+    """
+    total_chunks = 0
+    supported_extensions = {'.pdf', '.docx', '.txt', '.md'}
+    
+    for file_path in file_paths:
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        if ext == '.pdf':
+            total_chunks += upload_pdf_to_knowledge_base(file_path, topic, domain)
+        elif ext == '.docx':
+            total_chunks += upload_word_doc_to_knowledge_base(file_path, topic, domain)
+        elif ext in {'.txt', '.md'}:
+            total_chunks += upload_text_file_to_knowledge_base(file_path, topic, domain)
+        else:
+            print(f"⚠ Skipping unsupported file type: {file_path}")
+            print(f"  Supported: {', '.join(supported_extensions)}")
+    
+    print(f"\n✓ Batch upload complete: {total_chunks} total chunks added from {len(file_paths)} files")
+    return total_chunks
+
+
+def upload_directory(directory_path: str, topic: str = "batch", domain: str = "telecom", 
+                    recursive: bool = True) -> int:
+    """
+    Upload all supported documents from a directory to the knowledge base.
+    
+    Args:
+        directory_path: Path to directory
+        topic: Topic tag for all files
+        domain: Domain tag for all files
+        recursive: Whether to search subdirectories
+        
+    Returns:
+        Total number of chunks added
+    """
+    supported_extensions = {'.pdf', '.docx', '.txt', '.md'}
+    file_paths = []
+    
+    if recursive:
+        for root, dirs, files in os.walk(directory_path):
+            for file in files:
+                if os.path.splitext(file)[1].lower() in supported_extensions:
+                    file_paths.append(os.path.join(root, file))
+    else:
+        for file in os.listdir(directory_path):
+            file_path = os.path.join(directory_path, file)
+            if os.path.isfile(file_path) and os.path.splitext(file)[1].lower() in supported_extensions:
+                file_paths.append(file_path)
+    
+    if file_paths:
+        print(f"Found {len(file_paths)} supported files in {directory_path}")
+        return upload_multiple_files(file_paths, topic, domain)
+    else:
+        print(f"✗ No supported files found in {directory_path}")
+        return 0
+
+
 def compare_architectures(arch1: str, arch2: str, context: str) -> str:
     """
     Generate a detailed side-by-side comparison of two architectures.
@@ -554,6 +692,75 @@ def interactive_cli():
             print(f"\n❌ Error: {e}")
 
 
+def load_external_sources_from_config():
+    """
+    Load external sources from knowledge_sources.json configuration file.
+    This runs automatically on initialization to load local files and directories.
+    """
+    config_file = "knowledge_sources.json"
+    
+    if not os.path.exists(config_file):
+        return 0
+    
+    try:
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+        
+        total_chunks = 0
+        
+        # Load local files
+        for source in config.get('local_files', []):
+            if source.get('enabled', False) and os.path.exists(source['path']):
+                try:
+                    ext = os.path.splitext(source['path'])[1].lower()
+                    if ext == '.pdf':
+                        chunks = upload_pdf_to_knowledge_base(
+                            pdf_path=source['path'],
+                            topic=source.get('topic', 'document'),
+                            domain=source.get('domain', 'telecom')
+                        )
+                    elif ext == '.docx':
+                        chunks = upload_word_doc_to_knowledge_base(
+                            doc_path=source['path'],
+                            topic=source.get('topic', 'document'),
+                            domain=source.get('domain', 'telecom')
+                        )
+                    elif ext in ['.txt', '.md']:
+                        chunks = upload_text_file_to_knowledge_base(
+                            file_path=source['path'],
+                            topic=source.get('topic', 'document'),
+                            domain=source.get('domain', 'telecom')
+                        )
+                    else:
+                        continue
+                    total_chunks += chunks
+                except Exception as e:
+                    print(f"⚠️  Could not load {source['path']}: {e}")
+        
+        # Load directories
+        for source in config.get('directories', []):
+            if source.get('enabled', False) and os.path.isdir(source['path']):
+                try:
+                    chunks = upload_directory(
+                        directory_path=source['path'],
+                        topic=source.get('topic', 'directory'),
+                        domain=source.get('domain', 'telecom'),
+                        recursive=source.get('recursive', True)
+                    )
+                    total_chunks += chunks
+                except Exception as e:
+                    print(f"⚠️  Could not load {source['path']}: {e}")
+        
+        if total_chunks > 0:
+            print(f"✓ Loaded {total_chunks} chunks from external sources")
+        
+        return total_chunks
+        
+    except Exception as e:
+        print(f"⚠️  Error loading external sources: {e}")
+        return 0
+
+
 def initialize_knowledge_base():
     """Initialize the knowledge base with comprehensive telecom architecture documents."""
     
@@ -561,6 +768,8 @@ def initialize_knowledge_base():
     count = collection.count()
     if count > 10:  # More than initial docs means likely already initialized
         print(f"Knowledge base already contains {count} chunks. Skipping initialization.")
+        # Still try to load external sources
+        load_external_sources_from_config()
         return
     
     print("Initializing comprehensive knowledge base...")
@@ -892,11 +1101,35 @@ def initialize_knowledge_base():
     
     add_knowledge_to_db(documents, metadata)
     print("✓ Comprehensive knowledge base initialized successfully!")
+    
+    # Load external sources from configuration
+    print("\nLoading external sources from configuration...")
+    load_external_sources_from_config()
 
 
 if __name__ == "__main__":
+    import sys
+    import subprocess
+    
     # Initialize knowledge base
     initialize_knowledge_base()
     
-    # Start interactive CLI
-    interactive_cli()
+    # Launch Streamlit web interface
+    print("\n" + "="*70)
+    print("🚀 LAUNCHING WEB INTERFACE")
+    print("="*70)
+    print("\n📱 Starting Streamlit app...")
+    print("   Opening browser at: http://localhost:8501")
+    print("\n💡 To stop: Press Ctrl+C in this terminal")
+    print("="*70 + "\n")
+    
+    try:
+        # Run streamlit app
+        subprocess.run([sys.executable, "-m", "streamlit", "run", "streamlit_app.py"])
+    except KeyboardInterrupt:
+        print("\n\n👋 Shutting down gracefully...")
+    except FileNotFoundError:
+        print("\n❌ Error: Streamlit not found!")
+        print("   Install with: pip3 install streamlit")
+        print("\n💡 Falling back to CLI mode...\n")
+        interactive_cli()

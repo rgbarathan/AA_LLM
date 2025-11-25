@@ -141,15 +141,14 @@ if mode == "💬 Chat":
                 if show_citations and citations:
                     with st.expander("📚 View Sources"):
                         for cite in citations:
-                            # Gracefully handle missing relevance_score (new citation schema may not include it)
-                            score = cite.get('relevance_score')
-                            if isinstance(score, (int, float)):
-                                score_text = f"{score:.2f}"
-                            else:
-                                score_text = "N/A"
+                            # Use normalized relevance_score and optionally show raw score in tooltip
+                            norm_score = cite.get('relevance_score')
+                            raw_score = cite.get('raw_score')
+                            score_text = f"{norm_score:.2f}" if isinstance(norm_score, (int, float)) else "N/A"
+                            raw_text = f" (raw {raw_score:.2f})" if isinstance(raw_score, (int, float)) else ""
                             st.markdown(
                                 f"""
-                                <div class="citation-box">
+                                <div class="citation-box" title="Normalized score {score_text}{raw_text}">
                                     <span class="source-badge">Source {cite.get('source_id','?')}</span>
                                     <b>{cite.get('topic','unknown')}</b> ({cite.get('domain','telecom')}) - Relevance: {score_text}
                                     <br/><small>{cite.get('text_preview','(no preview)')}</small>

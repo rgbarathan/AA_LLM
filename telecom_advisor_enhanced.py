@@ -211,45 +211,50 @@ Provide a detailed, accurate answer based on the context provided. Reference sou
 # --- Minimal retrieve_context_with_citations implementation ---
 def retrieve_context_with_citations(query: str, n_results: int = 3) -> Tuple[str, List[Dict]]:
     """
-    Retrieve relevant context from the vector database with error handling.
+    Hybrid retrieve context with citation scoring.
+    
+    Uses hybrid_search to combine semantic embedding similarity and keyword BM25 scores.
+    Produces a unified context string and structured citations including relevance scores.
     
     Args:
-        query: Search query
-        n_results: Number of results to retrieve
-        
+        query: User query text
+        n_results: Number of chunks to return
     Returns:
-        Tuple of (context string, citations list)
+        (context, citations)
+        context: Concatenated text with source markers
+        citations: List of dicts containing source metadata and relevance_score
     """
     try:
-        logger.debug(f"Retrieving context for query: {query[:100]}...")
-        results = collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
-        
-        if results['documents'] and results['documents'][0]:
-            context_chunks = results['documents'][0]
-            context = "\n\n".join(context_chunks)
-            logger.info(f"Retrieved {len(context_chunks)} relevant chunks")
-            
-            # Create citations from metadata
-            citations = []
-            if results.get('metadatas') and results['metadatas'][0]:
-                for idx, (doc, meta) in enumerate(zip(context_chunks, results['metadatas'][0]), 1):
-                    citations.append({
-                        "source_id": idx,
-                        "topic": meta.get('topic', 'general'),
-                        "domain": meta.get('domain', 'telecom'),
-                        "text_preview": doc[:100] + "..." if len(doc) > 100 else doc
-                    })
-            
-            return context, citations
-        
-        logger.warning("No relevant documents found in knowledge base")
-        return "", []
-        
+        logger.debug(f"Hybrid retrieving context for query: {query[:120]}...")
+        docs, metadatas, scores = hybrid_search(query, n_results=n_results)
+        if not docs:
+            logger.info("Hybrid search returned no documents")
+            return "", []
+
+        # Normalize scores (simple max normalization) for display if mixed scales appear later
+        max_score = max(scores) if scores else 1.0
+        norm_scores = [s / max_score if max_score else 0.0 for s in scores]
+
+        context_parts = []
+        citations: List[Dict] = []
+        for idx, (doc, meta, raw_score, norm_score) in enumerate(zip(docs, metadatas, scores, norm_scores), 1):
+            context_parts.append(f"[Source {idx}] {doc}")
+            citations.append({
+                "source_id": idx,
+                "topic": meta.get('topic', 'general'),
+                "domain": meta.get('domain', 'telecom'),
+                "relevance_score": round(norm_score, 4),
+                "raw_score": round(raw_score, 4),
+                "doc_id": meta.get('doc_id'),
+                "chunk_index": meta.get('chunk_index'),
+                "text_preview": (doc[:140] + "...") if len(doc) > 140 else doc
+            })
+
+        context = "\n\n".join(context_parts)
+        logger.info(f"Hybrid search assembled {len(citations)} citations")
+        return context, citations
     except Exception as e:
-        logger.error(f"Error retrieving context from vector database: {e}")
+        logger.exception(f"Failed hybrid retrieval: {e}")
         return "", []
 
 

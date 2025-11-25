@@ -3,36 +3,126 @@ import chromadb
 from chromadb.utils import embedding_functions
 import os
 import json
+import logging
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import PyPDF2
 from rank_bm25 import BM25Okapi
 import re
 import docx  # python-docx for Word documents
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('telecom_advisor.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Configuration constants
+REQUEST_TIMEOUT = 30  # seconds
+MAX_RETRIES = 3
+MIN_RETRY_WAIT = 1  # seconds
+MAX_RETRY_WAIT = 10  # seconds
+
+# Configuration constants
+REQUEST_TIMEOUT = 30  # seconds
+MAX_RETRIES = 3
+MIN_RETRY_WAIT = 1  # seconds
+MAX_RETRY_WAIT = 10  # seconds
+
 # ChromaDB collection initialization (copied from telecom_advisor_rag.py)
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
-collection = chroma_client.get_or_create_collection(
-    name="telecom_knowledge",
-    embedding_function=embedding_function
-)
+try:
+    chroma_client = chromadb.PersistentClient(path="./chroma_db")
+    embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+    )
+    collection = chroma_client.get_or_create_collection(
+        name="telecom_knowledge",
+        embedding_function=embedding_function
+    )
+    logger.info("ChromaDB initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize ChromaDB: {e}")
+    raise
 
 # Google Gemini API Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
-    raise ValueError(
-        "GEMINI_API_KEY not found in environment variables. "
-        "Please create a .env file with your Gemini API key."
-    )
+    error_msg = "GEMINI_API_KEY not found in environment variables. Please create a .env file with your Gemini API key."
+    logger.error(error_msg)
+    raise ValueError(error_msg)
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+logger.info("Gemini API configured successfully")
+
+
+# Retry decorator for API calls
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_exponential(multiplier=MIN_RETRY_WAIT, max=MAX_RETRY_WAIT),
+    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+    before_sleep=before_sleep_log(logger, logging.WARNING)
+)
+def call_gemini_api(prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> Dict:
+    """
+    Call Gemini API with retry logic and error handling.
+    
+    Args:
+        prompt: The prompt to send to Gemini
+        temperature: Temperature for response generation
+        max_tokens: Maximum tokens in response
+        
+    Returns:
+        JSON response from Gemini API
+        
+    Raises:
+        requests.exceptions.RequestException: For API call failures
+    """
+    headers = {"Content-Type": "application/json"}
+    
+    data = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens
+        }
+    }
+    
+    try:
+        logger.debug(f"Calling Gemini API with prompt length: {len(prompt)}")
+        response = requests.post(
+            API_URL, 
+            headers=headers, 
+            json=data, 
+            timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        logger.info("Gemini API call successful")
+        return response.json()
+    except requests.exceptions.Timeout:
+        logger.error(f"Gemini API request timed out after {REQUEST_TIMEOUT} seconds")
+        raise
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Gemini API HTTP error: {e.response.status_code} - {e.response.text}")
+        raise
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Gemini API request failed: {e}")
+        raise
 
 def get_architecture_advice_with_rag(
     prompt: str,
@@ -72,75 +162,106 @@ Provide a detailed, accurate answer based on the context provided. Reference sou
     else:
         full_prompt = f"You are an expert telecom architect.{conversation_prompt}\n\n{prompt}"
 
-    # Call Google Gemini API
+    # Call Google Gemini API with retry logic
     try:
-        headers = {
-            "Content-Type": "application/json"
-        }
+        logger.info(f"Processing query: {prompt[:100]}...")
+        result = call_gemini_api(full_prompt)
         
-        data = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": full_prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.7,
-                "maxOutputTokens": 2048
-            }
-        }
-        
-        response = requests.post(API_URL, headers=headers, json=data)
-        
-        if response.status_code == 200:
-            result = response.json()
-            # Handle Gemini response structure
-            if "candidates" in result and len(result["candidates"]) > 0:
-                candidate = result["candidates"][0]
-                if "content" in candidate and "parts" in candidate["content"]:
-                    answer = candidate["content"]["parts"][0]["text"]
-                else:
-                    answer = f"Unexpected response structure: {result}"
+        # Handle Gemini response structure
+        if "candidates" in result and len(result["candidates"]) > 0:
+            candidate = result["candidates"][0]
+            if "content" in candidate and "parts" in candidate["content"]:
+                answer = candidate["content"]["parts"][0]["text"]
+                logger.info("Successfully generated response")
             else:
-                answer = f"No candidates in response: {result}"
+                error_msg = "Unexpected response structure from Gemini API"
+                logger.error(f"{error_msg}: {result}")
+                answer = f"Error: {error_msg}. Please try again."
         else:
-            answer = f"API Error: {response.status_code}, {response.text}"
+            error_msg = "No candidates in Gemini API response"
+            logger.warning(f"{error_msg}: {result}")
+            answer = f"Error: {error_msg}. The API may have filtered the content. Please try rephrasing your question."
 
         # Log query for analytics
-        # Try to extract topics from citations if available
         topics = [c['topic'] for c in citations] if citations else []
         log_query(prompt, topics)
         return answer, citations
+        
+    except requests.exceptions.Timeout:
+        error_msg = f"Request timed out after {REQUEST_TIMEOUT} seconds. The service may be experiencing high load."
+        logger.error(error_msg)
+        return f"⚠️ {error_msg} Please try again in a moment.", citations
+        
+    except requests.exceptions.HTTPError as e:
+        error_msg = f"API error occurred: {e.response.status_code}"
+        logger.error(f"{error_msg} - {e.response.text}")
+        return f"⚠️ {error_msg}. Please check your API key and try again.", citations
+        
+    except requests.exceptions.RequestException as e:
+        error_msg = "Network error occurred"
+        logger.error(f"{error_msg}: {e}")
+        return f"⚠️ {error_msg}. Please check your internet connection and try again.", citations
+        
     except Exception as e:
-        return f"Error: {e}", citations
+        error_msg = "Unexpected error occurred"
+        logger.exception(f"{error_msg}: {e}")
+        return f"⚠️ {error_msg}: {str(e)}. Please contact support if this persists.", citations
 
 
 # --- Minimal retrieve_context_with_citations implementation ---
-def retrieve_context_with_citations(query, n_results=3):
+def retrieve_context_with_citations(query: str, n_results: int = 3) -> Tuple[str, List[Dict]]:
     """
-    Retrieve relevant context from the vector database and return empty citations (placeholder).
+    Retrieve relevant context from the vector database with error handling.
+    
+    Args:
+        query: Search query
+        n_results: Number of results to retrieve
+        
+    Returns:
+        Tuple of (context string, citations list)
     """
     try:
+        logger.debug(f"Retrieving context for query: {query[:100]}...")
         results = collection.query(
             query_texts=[query],
             n_results=n_results
         )
+        
         if results['documents'] and results['documents'][0]:
             context_chunks = results['documents'][0]
             context = "\n\n".join(context_chunks)
-            # Placeholder: return empty citations
-            return context, []
+            logger.info(f"Retrieved {len(context_chunks)} relevant chunks")
+            
+            # Create citations from metadata
+            citations = []
+            if results.get('metadatas') and results['metadatas'][0]:
+                for idx, (doc, meta) in enumerate(zip(context_chunks, results['metadatas'][0]), 1):
+                    citations.append({
+                        "source_id": idx,
+                        "topic": meta.get('topic', 'general'),
+                        "domain": meta.get('domain', 'telecom'),
+                        "text_preview": doc[:100] + "..." if len(doc) > 100 else doc
+                    })
+            
+            return context, citations
+        
+        logger.warning("No relevant documents found in knowledge base")
         return "", []
+        
     except Exception as e:
-        print(f"[RAG] Error retrieving context: {e}")
+        logger.error(f"Error retrieving context from vector database: {e}")
         return "", []
 
 
 # --- Analytics Functions ---
-def log_query(query, topics):
-    """Append a query and its topics to analytics.json."""
+def log_query(query: str, topics: List[str]) -> None:
+    """
+    Append a query and its topics to analytics.json with error handling.
+    
+    Args:
+        query: User query
+        topics: List of topics extracted from the query
+    """
     analytics_file = "analytics.json"
     try:
         if os.path.exists(analytics_file):
@@ -162,21 +283,42 @@ def log_query(query, topics):
 
         with open(analytics_file, "w") as f:
             json.dump(analytics, f, indent=2)
+        logger.debug(f"Query logged to analytics: {query[:50]}...")
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse analytics file: {e}")
+    except IOError as e:
+        logger.error(f"Failed to write to analytics file: {e}")
     except Exception as e:
-        print(f"[Analytics] Error logging query: {e}")
+        logger.error(f"Unexpected error logging query: {e}")
 
-def load_analytics():
-    """Load analytics summary from analytics.json."""
+def load_analytics() -> Dict:
+    """
+    Load analytics summary from analytics.json with error handling.
+    
+    Returns:
+        Dictionary containing analytics data
+    """
     analytics_file = "analytics.json"
-    if os.path.exists(analytics_file):
-        try:
-            with open(analytics_file, "r") as f:
-                analytics = json.load(f)
-            return analytics
-        except Exception as e:
-            print(f"[Analytics] Error loading analytics: {e}")
-            return {"queries": [], "topics": {}, "total_queries": 0}
-    else:
+    default_analytics = {"queries": [], "topics": {}, "total_queries": 0}
+    
+    if not os.path.exists(analytics_file):
+        logger.info("Analytics file does not exist, returning default analytics")
+        return default_analytics
+        
+    try:
+        with open(analytics_file, "r") as f:
+            analytics = json.load(f)
+        logger.debug("Analytics loaded successfully")
+        return analytics
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse analytics file: {e}")
+        return default_analytics
+    except IOError as e:
+        logger.error(f"Failed to read analytics file: {e}")
+        return default_analytics
+    except Exception as e:
+        logger.error(f"Unexpected error loading analytics: {e}")
         return {"queries": [], "topics": {}, "total_queries": 0}
 
 

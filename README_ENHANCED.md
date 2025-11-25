@@ -127,6 +127,17 @@ cp .env.example .env
 # Edit .env and set GEMINI_API_KEY=your_key_here
 ```
 
+#### How to get a Gemini API key
+
+1) Go to Google AI Studio: https://aistudio.google.com/
+2) Sign in with your Google account.
+3) Click “Get API key” (or see https://ai.google.dev/gemini-api/docs/api-key) and create a key.
+4) Copy the key and set it as `GEMINI_API_KEY` in your `.env`.
+
+Tips:
+- Keep your key private; don’t commit `.env` to git.
+- Quotas and availability vary by region—see Google’s docs for details.
+
 See SETUP_SECURITY.md for a one-command secure setup and verification steps.
 
 ### Usage Options

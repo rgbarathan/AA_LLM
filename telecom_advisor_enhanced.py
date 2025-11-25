@@ -512,14 +512,43 @@ def upload_text_file_to_knowledge_base(file_path: str, topic: str = "uploaded", 
     Returns:
         Number of chunks added
     """
+    def _parse_front_matter(text: str) -> Tuple[Dict, str]:
+        """Simple YAML-like front matter parser for .md/.txt files."""
+        if text.startswith("---"):
+            try:
+                end = text.find("\n---", 3)
+                if end != -1:
+                    raw_yaml = text[3:end].strip()
+                    body = text[end+4:]
+                    meta = {}
+                    for line in raw_yaml.splitlines():
+                        if ':' in line:
+                            k, v = line.split(':', 1)
+                            meta[k.strip()] = v.strip()
+                    return meta, body
+            except Exception:
+                pass
+        return {}, text
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            text = f.read()
-        
+            raw = f.read()
+        front_meta, body = _parse_front_matter(raw)
+        text = body
         if text.strip():
-            metadata = [{"topic": topic, "domain": domain, "source": os.path.basename(file_path)}]
-            chunks_added = add_knowledge_to_db([text], metadata)
-            print(f"✓ Successfully added text file: {os.path.basename(file_path)}")
+            # Merge provided topic/domain only if not overridden in front matter
+            final_meta = {
+                "topic": front_meta.get("topic", topic),
+                "domain": front_meta.get("domain", domain),
+                "priority": front_meta.get("priority", "medium"),
+                "source": front_meta.get("source", os.path.basename(file_path)),
+                "source_type": front_meta.get("source_type", "external")
+            }
+            # Include any additional front matter keys
+            for k, v in front_meta.items():
+                if k not in final_meta:
+                    final_meta[k] = v
+            chunks_added = add_knowledge_to_db([text], [final_meta])
+            print(f"✓ Successfully added text file: {os.path.basename(file_path)} (topic={final_meta['topic']}, domain={final_meta['domain']})")
             return chunks_added
         else:
             print(f"✗ No text found in file: {os.path.basename(file_path)}")
@@ -769,6 +798,12 @@ def interactive_cli():
                 show_analytics()
                 continue
             
+            if user_input.lower().startswith('reload'):
+                print("\n🔄 Reloading external knowledge sources...\n")
+                loaded = load_external_sources_from_config()
+                print(f"Reload complete. External chunks added this run: {loaded}")
+                continue
+
             if user_input.lower().startswith('upload '):
                 pdf_path = user_input[7:].strip()
                 chunks = upload_pdf_to_knowledge_base(pdf_path)
@@ -903,348 +938,84 @@ def load_external_sources_from_config():
 
 
 def initialize_knowledge_base():
-    """Initialize the knowledge base with comprehensive telecom architecture documents."""
-    
-    # Check if knowledge base already has documents
-    count = collection.count()
-    if count > 10:  # More than initial docs means likely already initialized
-        print(f"Knowledge base already contains {count} chunks. Skipping initialization.")
-        # Still try to load external sources
+    """Initialize the knowledge base.
+
+    New dynamic approach:
+    1. Attempt to load seed markdown files from a directory (default: ./knowledge_base).
+       Each file may include optional YAML front matter for metadata.
+    2. Optionally load external sources from configuration file knowledge_sources.json.
+    3. Fallback to embedded static docs only if nothing was loaded (to keep backward compatibility).
+    """
+
+    def parse_front_matter(text: str) -> Tuple[Dict, str]:
+        """Parse simple YAML front matter delimited by --- lines. Returns (metadata, body)."""
+        if text.startswith("---"):
+            try:
+                end = text.find("\n---", 3)
+                if end != -1:
+                    raw_yaml = text[3:end].strip()
+                    body = text[end+4:]
+                    metadata = {}
+                    for line in raw_yaml.splitlines():
+                        if ':' in line:
+                            k, v = line.split(':', 1)
+                            metadata[k.strip()] = v.strip()
+                    return metadata, body
+            except Exception:
+                pass
+        return {}, text
+
+    def load_seed_knowledge_from_directory(dir_path: str) -> int:
+        if not os.path.isdir(dir_path):
+            return 0
+        added_chunks = 0
+        for fname in os.listdir(dir_path):
+            if not fname.lower().endswith(('.md', '.txt')):
+                continue
+            fpath = os.path.join(dir_path, fname)
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                meta, body = parse_front_matter(content)
+                # Derive defaults if not provided
+                meta.setdefault('topic', os.path.splitext(fname)[0])
+                meta.setdefault('domain', 'architecture')
+                meta.setdefault('source', fname)
+                meta.setdefault('priority', 'medium')
+                chunks = add_knowledge_to_db([body], [meta])
+                added_chunks += chunks
+            except Exception as e:
+                print(f"⚠️  Failed to load {fname}: {e}")
+        return added_chunks
+
+    existing = collection.count()
+    if existing > 10:
+        print(f"Knowledge base already contains {existing} chunks. Skipping seed load.")
         load_external_sources_from_config()
         return
-    
-    print("Initializing comprehensive knowledge base...")
-    
-    # Enhanced telecom architecture knowledge documents
-    documents = [
-        """
-        Microservices Architecture for Telecom Billing Systems:
-        Microservices architecture breaks down the billing system into smaller, independent services.
-        Key benefits include:
-        - Scalability: Individual services can be scaled independently based on load
-        - Independent deployment: Update billing engine without affecting rating service
-        - Technology flexibility: Use different technologies for different services
-        - Fault isolation: Failure in one service doesn't crash the entire system
-        - Team autonomy: Different teams can own different services
-        
-        Challenges:
-        - Distributed system complexity: Network latency, service discovery
-        - Data consistency: Managing transactions across multiple services
-        - Monitoring and debugging: Requires sophisticated tools like distributed tracing
-        - Orchestration overhead: Need for API gateways, service meshes
-        - Testing complexity: Integration testing across services
-        
-        Best for: High-volume telecom billing with frequent updates and need for high availability
-        Real-world examples: Netflix OSS, Uber's billing system, Amazon's service-oriented architecture
-        """,
-        
-        """
-        Monolithic Architecture for Telecom Billing Systems:
-        Monolithic architecture builds the entire billing system as a single unified application.
-        Key benefits:
-        - Simplicity: Easier to develop, test, and deploy initially
-        - Performance: No network overhead between components
-        - Consistency: ACID transactions are straightforward
-        - Easier debugging: Single codebase, simpler stack traces
-        - Lower operational complexity: Single deployment unit
-        
-        Challenges:
-        - Scaling limitations: Must scale the entire application, not individual components
-        - Update complexity: Small changes require full system deployment
-        - Technology lock-in: Difficult to adopt new technologies
-        - Single point of failure: One bug can crash the entire system
-        - Large codebase: Becomes harder to maintain over time
-        
-        Best for: Small to medium telecom operators with stable requirements
-        Migration strategy: Can evolve to microservices using strangler fig pattern
-        """,
-        
-        """
-        TM Forum Standards for Telecom OSS/BSS:
-        TM Forum (TeleManagement Forum) provides industry standards for OSS/BSS systems.
-        
-        Key frameworks:
-        - Open Digital Architecture (ODA): Component-based architecture framework for digital transformation
-        - Application Framework (TAM): Technical architecture model defining application layers
-        - Information Framework (SID): Shared information/data model for consistent data across systems
-        - Integration Framework (eTOM): Business process framework for operations and management
-        
-        Open APIs (TMF APIs):
-        - TMF620: Product Catalog Management - manage product offerings
-        - TMF637: Product Inventory Management - track provisioned products
-        - TMF678: Customer Bill Management - billing and invoicing
-        - TMF622: Product Ordering - order capture and fulfillment
-        - TMF632: Party Management - customer and partner information
-        - TMF666: Account Management - customer accounts
-        - TMF674: Geographic Site Management - location data
-        
-        Benefits of compliance:
-        - Interoperability between vendor solutions
-        - Reduced integration costs (up to 40% savings)
-        - Faster time-to-market for new services
-        - Vendor independence and reduced lock-in
-        - Industry-proven best practices
-        """,
-        
-        """
-        High Availability Requirements for Telecom Systems:
-        Telecom billing and OSS systems typically require 99.99% or higher availability (four nines = 52 minutes downtime/year).
-        
-        Key strategies:
-        - Redundancy: Active-active or active-passive configurations across data centers
-        - Load balancing: Distribute traffic using DNS, hardware, or software load balancers
-        - Database replication: Multi-master for write scaling, master-slave for read scaling
-        - Geographic distribution: Multiple data centers for disaster recovery (RPO/RTO < 1 hour)
-        - Health checks: Automated monitoring with Prometheus, Grafana, Nagios
-        - Circuit breakers: Prevent cascade failures using Hystrix, Resilience4j
-        - Chaos engineering: Netflix Chaos Monkey for testing resilience
-        
-        Latency requirements:
-        - Real-time charging: <50ms response time (P95)
-        - API calls: <200ms for synchronous operations
-        - Batch billing: Process within maintenance windows (typically 2-4 hours)
-        - Mediation: Near real-time processing (<5 minutes)
-        
-        SLA targets:
-        - 99.999% (five nines) for critical charging systems
-        - 99.99% for billing and customer management
-        - 99.9% for reporting and analytics
-        
-        Monitoring metrics: Error rate, latency, saturation, traffic (Google's Four Golden Signals)
-        """,
-        
-        """
-        Cloud-Native Architecture for Telecom:
-        Cloud-native telecom systems leverage containerization, orchestration, and cloud services.
-        
-        Key components:
-        - Containers: Docker for packaging applications with dependencies
-        - Orchestration: Kubernetes for container lifecycle management, auto-scaling
-        - Service mesh: Istio or Linkerd for service-to-service communication, security, observability
-        - CI/CD: Jenkins, GitLab CI, ArgoCD for automated deployment pipelines
-        - Observability: Prometheus for metrics, Jaeger for tracing, ELK/EFK for logging
-        - Infrastructure as Code: Terraform, Ansible for reproducible infrastructure
-        
-        Benefits:
-        - Auto-scaling based on demand (horizontal pod autoscaling)
-        - Rolling updates with zero downtime
-        - Multi-cloud portability (avoid vendor lock-in)
-        - Cost optimization through resource efficiency (right-sizing)
-        - Faster recovery from failures (self-healing)
-        
-        Considerations for telecom:
-        - Data residency and compliance (GDPR, data sovereignty)
-        - Network function virtualization (NFV) integration
-        - 5G core network compatibility (SBA - Service-Based Architecture)
-        - Edge computing for low latency (MEC - Multi-access Edge Computing)
-        - Security: Zero-trust networking, mutual TLS, policy enforcement
-        
-        Adoption path: Lift-and-shift → Re-platform → Re-architect (cloud-native)
-        """,
-        
-        """
-        5G Architecture and Network Slicing:
-        5G networks introduce Service-Based Architecture (SBA) with cloud-native principles.
-        
-        Core components:
-        - AMF (Access and Mobility Management): Connection and mobility management
-        - SMF (Session Management): Session establishment and management
-        - UPF (User Plane Function): Packet routing and forwarding
-        - PCF (Policy Control): Policy and charging control
-        - UDM (Unified Data Management): Subscription and authentication data
-        - AUSF (Authentication Server): Authentication services
-        
-        Network Slicing:
-        - eMBB (Enhanced Mobile Broadband): High bandwidth for video streaming
-        - URLLC (Ultra-Reliable Low-Latency): Critical applications (autonomous vehicles)
-        - mMTC (Massive Machine-Type Communications): IoT devices
-        
-        Charging considerations:
-        - Real-time charging per slice
-        - Dynamic pricing based on QoS
-        - Converged charging (online + offline)
-        - Usage-based and subscription models
-        
-        Integration with BSS:
-        - TMF654 Prepay Balance Management
-        - TMF635 Usage Management
-        - Real-time policy control via PCF
-        """,
-        
-        """
-        NFV (Network Functions Virtualization) and SDN (Software-Defined Networking):
-        
-        NFV Overview:
-        - Virtualizes network functions traditionally on dedicated hardware
-        - VNF (Virtual Network Function): Software implementation of network function
-        - NFVI (NFV Infrastructure): Hardware and software for hosting VNFs
-        - MANO (Management and Orchestration): Lifecycle management
-        
-        Benefits:
-        - Reduced CAPEX: Use commodity hardware
-        - Faster service deployment: Minutes vs months
-        - Scalability: Scale functions independently
-        - Multi-tenancy: Share infrastructure across services
-        
-        SDN Overview:
-        - Separates control plane from data plane
-        - Centralized network intelligence
-        - Programmable network infrastructure
-        - OpenFlow protocol for switch control
-        
-        OSS/BSS Integration:
-        - Service orchestration across virtual and physical resources
-        - Dynamic resource allocation based on demand
-        - Automated provisioning and configuration
-        - Unified inventory management (TMF637)
-        - Cost allocation and showback/chargeback
-        
-        Challenges:
-        - Performance overhead of virtualization
-        - Complex orchestration
-        - Security in multi-tenant environments
-        """,
-        
-        """
-        Edge Computing and MEC (Multi-access Edge Computing):
-        Edge computing brings computation closer to data sources for reduced latency.
-        
-        MEC Architecture:
-        - Edge nodes at base stations or aggregation points
-        - Local content caching and CDN
-        - Application hosting at the edge
-        - Integration with 5G network slicing
-        
-        Use cases in telecom:
-        - AR/VR applications requiring <10ms latency
-        - Real-time video analytics
-        - IoT data processing
-        - Local breakout for enterprise applications
-        - Gaming and interactive media
-        
-        Billing and charging:
-        - Edge-based micro-charging
-        - Location-based pricing
-        - QoS-based charging
-        - Integration with central BSS
-        
-        Architecture considerations:
-        - Distributed databases (Cassandra, CockroachDB)
-        - Edge orchestration (KubeEdge, AWS Wavelength)
-        - Data synchronization with central systems
-        - Security at the edge
-        - Offline operation capability
-        
-        Economic model:
-        - Reduced bandwidth costs
-        - Improved user experience (lower latency)
-        - New revenue streams (edge services)
-        """,
-        
-        """
-        IoT Billing and Device Management:
-        Internet of Things creates unique billing challenges for telecom operators.
-        
-        IoT Characteristics:
-        - Massive scale: Millions of devices per operator
-        - Low ARPU: Average Revenue Per User is minimal
-        - Diverse protocols: MQTT, CoAP, LwM2M
-        - Long device lifecycle: 10+ years
-        - Low power requirements: NB-IoT, LTE-M
-        
-        Billing models:
-        - Per-device subscription
-        - Usage-based (data consumed)
-        - Tiered pricing by device class
-        - Pooled data plans for device fleets
-        - Event-based charging (messages, API calls)
-        
-        Device management (TMF639):
-        - Remote provisioning
-        - Firmware updates OTA (Over-The-Air)
-        - Diagnostic and monitoring
-        - Lifecycle management
-        - SIM/eSIM management
-        
-        Architecture requirements:
-        - Scalable mediation for high-volume events
-        - Real-time aggregation and rating
-        - Batch processing for non-critical billing
-        - API-first architecture for device onboarding
-        - Integration with IoT platforms (AWS IoT, Azure IoT Hub)
-        
-        Challenges:
-        - Micropayment processing costs
-        - Data volume management
-        - Security and device authentication
-        - Roaming and global connectivity
-        """,
-        
-        """
-        Event-Driven Architecture for Telecom BSS:
-        Event-driven architecture enables real-time responsiveness and loose coupling.
-        
-        Core concepts:
-        - Event producers: Network elements, applications, users
-        - Event brokers: Kafka, RabbitMQ, AWS SNS/SQS
-        - Event consumers: Billing, analytics, notifications
-        - Event sourcing: Store all changes as events
-        - CQRS: Separate read and write models
-        
-        Benefits for telecom:
-        - Real-time charging and policy decisions
-        - Asynchronous processing for scalability
-        - Audit trail and compliance
-        - Loose coupling between systems
-        - Easy integration of new services
-        
-        Use cases:
-        - Usage event processing from network
-        - Real-time fraud detection
-        - Customer notification triggers
-        - Order orchestration
-        - Inventory updates
-        
-        Implementation patterns:
-        - Apache Kafka for high-throughput streaming
-        - Schema registry for event contracts
-        - Dead letter queues for error handling
-        - Event replay for system recovery
-        - Partitioning for scalability
-        
-        Challenges:
-        - Event ordering and idempotency
-        - Eventual consistency
-        - Debugging distributed flows
-        - Schema evolution
-        - Exactly-once processing semantics
-        
-        Best practices:
-        - Design events for business domains
-        - Version events from the start
-        - Monitor lag and throughput
-        - Implement circuit breakers
-        """
-    ]
-    
-    metadata = [
-        {"topic": "microservices", "domain": "architecture", "priority": "high"},
-        {"topic": "monolithic", "domain": "architecture", "priority": "high"},
-        {"topic": "standards", "domain": "compliance", "priority": "high"},
-        {"topic": "high_availability", "domain": "infrastructure", "priority": "high"},
-        {"topic": "cloud_native", "domain": "architecture", "priority": "high"},
-        {"topic": "5g", "domain": "network", "priority": "medium"},
-        {"topic": "nfv_sdn", "domain": "network", "priority": "medium"},
-        {"topic": "edge_computing", "domain": "infrastructure", "priority": "medium"},
-        {"topic": "iot", "domain": "services", "priority": "medium"},
-        {"topic": "event_driven", "domain": "architecture", "priority": "medium"}
-    ]
-    
-    add_knowledge_to_db(documents, metadata)
-    print("✓ Comprehensive knowledge base initialized successfully!")
-    
-    # Load external sources from configuration
-    print("\nLoading external sources from configuration...")
+
+    seed_dir = os.getenv('KNOWLEDGE_DIR', 'knowledge_base')
+    print(f"Initializing knowledge base from directory: {seed_dir}")
+    loaded = load_seed_knowledge_from_directory(seed_dir)
+    if loaded > 0:
+        print(f"✓ Loaded {loaded} chunks from seed directory")
+    else:
+        print("No seed files found; falling back to embedded static seed (legacy).")
+        # Minimal fallback (shortened) to avoid very large inline block
+        documents = [
+            """Microservices Architecture: Benefits (scalability, deployment independence, fault isolation) and challenges (distributed complexity, data consistency). Best for high-volume, evolving telecom billing.""",
+            """Monolithic Architecture: Simplicity and performance early; challenges in scaling and deployment frequency. Suitable for smaller operators with stable needs.""",
+            """TM Forum Standards: ODA, TAM, SID, eTOM plus key Open APIs (TMF620, TMF637, TMF678, TMF622). Benefits: interoperability, reduced integration cost, faster time-to-market."""
+        ]
+        metadata = [
+            {"topic": "microservices", "domain": "architecture", "priority": "high"},
+            {"topic": "monolithic", "domain": "architecture", "priority": "high"},
+            {"topic": "standards", "domain": "compliance", "priority": "high"}
+        ]
+        add_knowledge_to_db(documents, metadata)
+        print("✓ Fallback static knowledge added")
+
+    print("\nLoading external sources from configuration (if any)...")
     load_external_sources_from_config()
 
 

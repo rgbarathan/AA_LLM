@@ -1,0 +1,12 @@
+{
+  "local_files": [],
+  "directories": [
+    {
+      "enabled": true,
+      "path": "knowledge_base",
+      "topic": "external",
+      "domain": "architecture",
+      "recursive": true
+    }
+  ]
+}

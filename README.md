@@ -27,6 +27,18 @@ User → [Hybrid Search] → Context + History → Prompt → Gemini → Answer
 - macOS/Linux/Windows with Python 3.9+
 - A Google Gemini API key
 
+### Get a Gemini API key (first time)
+
+1) Open Google AI Studio: https://aistudio.google.com/
+2) Sign in with your Google account.
+3) Go to "Get API key" (or visit https://ai.google.dev/gemini-api/docs/api-key) and click "Create API key".
+4) Select a project (or accept the default) and create the key.
+5) Copy the key and keep it secret. You’ll set it as `GEMINI_API_KEY` below.
+
+Notes:
+- Some regions may have restrictions; check availability in the official docs.
+- Free tiers and quotas apply; see Google’s usage and pricing guidance.
+
 ### Setup
 
 ```bash

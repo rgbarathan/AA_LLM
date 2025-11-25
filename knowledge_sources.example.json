@@ -1,0 +1,19 @@
+{
+  "local_files": [
+    {
+      "enabled": true,
+      "path": "knowledge_base/microservices.md",
+      "topic": "microservices",
+      "domain": "architecture"
+    }
+  ],
+  "directories": [
+    {
+      "enabled": true,
+      "path": "knowledge_base",
+      "topic": "seed",
+      "domain": "architecture",
+      "recursive": false
+    }
+  ]
+}

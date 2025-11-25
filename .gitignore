@@ -40,6 +40,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Analytics data (auto-generated)
+analytics.json
+
 # Environment variables
 .env
 .env.local

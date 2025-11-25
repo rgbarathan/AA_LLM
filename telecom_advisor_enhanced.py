@@ -9,66 +9,176 @@ import PyPDF2
 from rank_bm25 import BM25Okapi
 import re
 import docx  # python-docx for Word documents
+
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Google Gemini API Configuration
-API_KEY = os.getenv("GEMINI_API_KEY")
-if not API_KEY:
-    raise ValueError(
-        "GEMINI_API_KEY not found in environment variables. "
-        "Please create a .env file with your API key. "
-        "See .env.example for reference."
-    )
-API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={API_KEY}"
-
-# Initialize ChromaDB client and embedding function
+# ChromaDB collection initialization (copied from telecom_advisor_rag.py)
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
     model_name="all-MiniLM-L6-v2"
 )
-
-# Get or create collection
 collection = chroma_client.get_or_create_collection(
     name="telecom_knowledge",
     embedding_function=embedding_function
 )
 
-# Analytics storage
-ANALYTICS_FILE = "analytics.json"
-conversation_history = []
+# Google Gemini API Configuration
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY not found in environment variables. "
+        "Please create a .env file with your Gemini API key."
+    )
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
+def get_architecture_advice_with_rag(
+    prompt: str,
+    use_rag: bool = True,
+    include_citations: bool = True,
+    conversation_context: List[Dict] = None
+) -> Tuple[str, List[Dict]]:
+    """
+    Get architecture advice using RAG with citations and conversation history.
+    Uses Google Gemini API for LLM responses.
+    """
+    citations = []
+
+    # Build conversation history
+    conversation_prompt = ""
+    if conversation_context:
+        conversation_prompt = "\n\nPREVIOUS CONVERSATION:\n"
+        for msg in conversation_context[-3:]:  # Last 3 exchanges
+            conversation_prompt += f"User: {msg['user']}\nAssistant: {msg['assistant']}\n"
+
+    # Retrieve relevant context if using RAG
+    if use_rag:
+        context, citations = retrieve_context_with_citations(prompt)
+        if context:
+            full_prompt = f"""You are an expert telecom architect. Use the following knowledge base context to answer the question accurately.
+
+CONTEXT FROM KNOWLEDGE BASE:
+{context}
+{conversation_prompt}
+
+USER QUESTION:
+{prompt}
+
+Provide a detailed, accurate answer based on the context provided. Reference sources using [Source N] notation when applicable."""
+        else:
+            full_prompt = f"You are an expert telecom architect.{conversation_prompt}\n\n{prompt}"
+    else:
+        full_prompt = f"You are an expert telecom architect.{conversation_prompt}\n\n{prompt}"
+
+    # Call Google Gemini API
+    try:
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": full_prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 2048
+            }
+        }
+        
+        response = requests.post(API_URL, headers=headers, json=data)
+        
+        if response.status_code == 200:
+            result = response.json()
+            # Handle Gemini response structure
+            if "candidates" in result and len(result["candidates"]) > 0:
+                candidate = result["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    answer = candidate["content"]["parts"][0]["text"]
+                else:
+                    answer = f"Unexpected response structure: {result}"
+            else:
+                answer = f"No candidates in response: {result}"
+        else:
+            answer = f"API Error: {response.status_code}, {response.text}"
+
+        # Log query for analytics
+        # Try to extract topics from citations if available
+        topics = [c['topic'] for c in citations] if citations else []
+        log_query(prompt, topics)
+        return answer, citations
+    except Exception as e:
+        return f"Error: {e}", citations
+
+
+# --- Minimal retrieve_context_with_citations implementation ---
+def retrieve_context_with_citations(query, n_results=3):
+    """
+    Retrieve relevant context from the vector database and return empty citations (placeholder).
+    """
+    try:
+        results = collection.query(
+            query_texts=[query],
+            n_results=n_results
+        )
+        if results['documents'] and results['documents'][0]:
+            context_chunks = results['documents'][0]
+            context = "\n\n".join(context_chunks)
+            # Placeholder: return empty citations
+            return context, []
+        return "", []
+    except Exception as e:
+        print(f"[RAG] Error retrieving context: {e}")
+        return "", []
+
+
+# --- Analytics Functions ---
+def log_query(query, topics):
+    """Append a query and its topics to analytics.json."""
+    analytics_file = "analytics.json"
+    try:
+        if os.path.exists(analytics_file):
+            with open(analytics_file, "r") as f:
+                analytics = json.load(f)
+        else:
+            analytics = {"queries": [], "topics": {}, "total_queries": 0}
+
+        # Add query
+        analytics["queries"].append({
+            "query": query,
+            "timestamp": datetime.now().isoformat(),
+            "topics": topics
+        })
+        # Update topic counts
+        for topic in topics:
+            analytics["topics"][topic] = analytics["topics"].get(topic, 0) + 1
+        analytics["total_queries"] = analytics.get("total_queries", 0) + 1
+
+        with open(analytics_file, "w") as f:
+            json.dump(analytics, f, indent=2)
+    except Exception as e:
+        print(f"[Analytics] Error logging query: {e}")
 
 def load_analytics():
-    """Load analytics data from file."""
-    if os.path.exists(ANALYTICS_FILE):
-        with open(ANALYTICS_FILE, 'r') as f:
-            return json.load(f)
-    return {"queries": [], "topics": {}, "total_queries": 0}
+    """Load analytics summary from analytics.json."""
+    analytics_file = "analytics.json"
+    if os.path.exists(analytics_file):
+        try:
+            with open(analytics_file, "r") as f:
+                analytics = json.load(f)
+            return analytics
+        except Exception as e:
+            print(f"[Analytics] Error loading analytics: {e}")
+            return {"queries": [], "topics": {}, "total_queries": 0}
+    else:
+        return {"queries": [], "topics": {}, "total_queries": 0}
 
-
-def save_analytics(analytics):
-    """Save analytics data to file."""
-    with open(ANALYTICS_FILE, 'w') as f:
-        json.dump(analytics, f, indent=2)
-
-
-def log_query(query: str, topics: List[str]):
-    """Log query for analytics."""
-    analytics = load_analytics()
-    analytics["queries"].append({
-        "query": query,
-        "timestamp": datetime.now().isoformat(),
-        "topics": topics
-    })
-    analytics["total_queries"] += 1
-    
-    for topic in topics:
-        analytics["topics"][topic] = analytics["topics"].get(topic, 0) + 1
-    
-    save_analytics(analytics)
 
 
 def chunk_text(text: str, chunk_size: int = 500) -> List[str]:
@@ -161,15 +271,15 @@ def hybrid_search(query: str, n_results: int = 5) -> Tuple[List[str], List[Dict]
                 if doc not in combined_docs:
                     combined_docs.append(doc)
                     combined_metadata.append(meta)
-                    combined_scores.append(1.0)  # Semantic match
+                    combined_scores.append(0.7)  # Default semantic score
         
         # Add top BM25 results
-        for idx in top_bm25_indices[:3]:
+        for idx in top_bm25_indices:
             doc = all_docs['documents'][idx]
             if doc not in combined_docs:
                 combined_docs.append(doc)
                 combined_metadata.append(all_docs['metadatas'][idx])
-                combined_scores.append(0.8)  # Keyword match
+                combined_scores.append(0.3)  # Default keyword score
         
         return combined_docs[:n_results], combined_metadata[:n_results], combined_scores[:n_results]
     
@@ -180,122 +290,6 @@ def hybrid_search(query: str, n_results: int = 5) -> Tuple[List[str], List[Dict]
                 [1.0] * len(semantic_results['documents'][0]))
     
     return [], [], []
-
-
-def retrieve_context_with_citations(query: str, n_results: int = 3) -> Tuple[str, List[Dict]]:
-    """
-    Retrieve relevant context with citation information.
-    
-    Args:
-        query: User's question
-        n_results: Number of relevant chunks to retrieve
-        
-    Returns:
-        Tuple of (context string, citations list)
-    """
-    docs, metadata, scores = hybrid_search(query, n_results)
-    
-    citations = []
-    context_parts = []
-    
-    for idx, (doc, meta, score) in enumerate(zip(docs, metadata, scores), 1):
-        context_parts.append(f"[Source {idx}]: {doc}")
-        citations.append({
-            "source_id": idx,
-            "topic": meta.get('topic', 'general'),
-            "domain": meta.get('domain', 'telecom'),
-            "relevance_score": score,
-            "text_preview": doc[:100] + "..." if len(doc) > 100 else doc
-        })
-    
-    context = "\n\n".join(context_parts)
-    return context, citations
-
-
-def get_architecture_advice_with_rag(
-    prompt: str, 
-    use_rag: bool = True, 
-    include_citations: bool = True,
-    conversation_context: List[Dict] = None
-) -> Tuple[str, List[Dict]]:
-    """
-    Get architecture advice using RAG with citations and conversation history.
-    
-    Args:
-        prompt: User's question
-        use_rag: Whether to use RAG
-        include_citations: Whether to include citations
-        conversation_context: Previous conversation messages
-        
-    Returns:
-        Tuple of (response, citations)
-    """
-    headers = {
-        "Content-Type": "application/json"
-    }
-    
-    citations = []
-    
-    # Build conversation history
-    conversation_prompt = ""
-    if conversation_context:
-        conversation_prompt = "\n\nPREVIOUS CONVERSATION:\n"
-        for msg in conversation_context[-3:]:  # Last 3 exchanges
-            conversation_prompt += f"User: {msg['user']}\nAssistant: {msg['assistant']}\n"
-    
-    # Retrieve relevant context if using RAG
-    if use_rag:
-        context, citations = retrieve_context_with_citations(prompt)
-        if context:
-            full_prompt = f"""You are an expert telecom architect. Use the following knowledge base context to answer the question accurately.
-
-CONTEXT FROM KNOWLEDGE BASE:
-{context}
-{conversation_prompt}
-
-USER QUESTION:
-{prompt}
-
-Provide a detailed, accurate answer based on the context provided. Reference sources using [Source N] notation when applicable."""
-        else:
-            full_prompt = f"You are an expert telecom architect.{conversation_prompt}\n\n{prompt}"
-    else:
-        full_prompt = f"You are an expert telecom architect.{conversation_prompt}\n\n{prompt}"
-    
-    data = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": full_prompt}
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 2048
-        }
-    }
-    
-    response = requests.post(API_URL, headers=headers, json=data)
-    
-    if response.status_code == 200:
-        result = response.json()
-        if "candidates" in result and len(result["candidates"]) > 0:
-            candidate = result["candidates"][0]
-            if "content" in candidate:
-                if "parts" in candidate["content"]:
-                    answer = candidate["content"]["parts"][0]["text"]
-                    
-                    # Log query for analytics
-                    topics = [cite.get('topic', 'general') for cite in citations]
-                    log_query(prompt, topics)
-                    
-                    return answer, citations
-                elif "text" in candidate["content"]:
-                    return candidate["content"]["text"], citations
-        return f"Unexpected response structure: {result}", []
-    else:
-        return f"Error: {response.status_code}, {response.text}", []
 
 
 def upload_pdf_to_knowledge_base(pdf_path: str, topic: str = "uploaded", domain: str = "telecom") -> int:

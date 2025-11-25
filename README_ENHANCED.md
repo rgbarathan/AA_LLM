@@ -120,6 +120,15 @@ User Input → [Hybrid Search] → [Context + History] → [LLM] → Response
 pip install -r requirements.txt
 ```
 
+### Configure API Key
+
+```bash
+cp .env.example .env
+# Edit .env and set GEMINI_API_KEY=your_key_here
+```
+
+See SETUP_SECURITY.md for a one-command secure setup and verification steps.
+
 ### Usage Options
 
 #### Option 1: Interactive CLI (All Features)

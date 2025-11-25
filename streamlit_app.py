@@ -141,13 +141,22 @@ if mode == "💬 Chat":
                 if show_citations and citations:
                     with st.expander("📚 View Sources"):
                         for cite in citations:
-                            st.markdown(f"""
-                            <div class="citation-box">
-                                <span class="source-badge">Source {cite['source_id']}</span>
-                                <b>{cite['topic']}</b> ({cite['domain']}) - Relevance: {cite['relevance_score']:.2f}
-                                <br/><small>{cite['text_preview']}</small>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            # Gracefully handle missing relevance_score (new citation schema may not include it)
+                            score = cite.get('relevance_score')
+                            if isinstance(score, (int, float)):
+                                score_text = f"{score:.2f}"
+                            else:
+                                score_text = "N/A"
+                            st.markdown(
+                                f"""
+                                <div class="citation-box">
+                                    <span class="source-badge">Source {cite.get('source_id','?')}</span>
+                                    <b>{cite.get('topic','unknown')}</b> ({cite.get('domain','telecom')}) - Relevance: {score_text}
+                                    <br/><small>{cite.get('text_preview','(no preview)')}</small>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
         
         # Save to conversation
         st.session_state.conversation.append({

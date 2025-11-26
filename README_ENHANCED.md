@@ -1,23 +1,25 @@
-# Telecom Architecture Advisor - Complete Enhancement Suite
+> Note: The comprehensive enhancement documentation has moved.
 
-🚀 **All 10 Enhancements Implemented!**
+# Enhancements Documentation Moved
 
-An intelligent telecom architecture advisor with **comprehensive features** including RAG, interactive CLI, web interface, document upload, analytics, and more.
+All the detailed enhancement documentation (previously in this file) now lives in:
 
-## 🎯 Overview
+- `docs/ENHANCEMENTS.md`
 
-This project is a production-ready LLM-based AI system that assists telecom architects and engineers in making informed design decisions. It combines cutting-edge AI technologies with practical telecom domain knowledge.
+Why the change?
+- Keep `README.md` concise for new users
+- Centralize deep-dive details under `docs/`
+- Reduce duplication and maintenance overhead
 
-### Core Technologies
+Quick links:
+- Quick start and dynamic knowledge loading: see `README.md`
+- Full features, examples, and architecture: see `docs/ENHANCEMENTS.md`
 
-- **Google Gemini 2.5 Flash** - Advanced LLM for response generation
-- **ChromaDB** - Vector database for semantic search
-- **Sentence Transformers** - Text embeddings (all-MiniLM-L6-v2)
-- **BM25** - Keyword-based search for hybrid retrieval
-- **Streamlit** - Modern web interface
-- **ReportLab & python-docx** - Document export capabilities
+---
 
-## ✨ Complete Feature Set
+Below is a short summary; for full details refer to `docs/ENHANCEMENTS.md`.
+
+## ✨ Feature Overview
 
 ### ✅ 1. Interactive CLI Interface
 - Continuous conversation mode

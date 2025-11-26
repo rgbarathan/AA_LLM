@@ -2,6 +2,8 @@
 
 AI-powered telecom architecture advisor using Retrieval-Augmented Generation (RAG), hybrid search, and a Streamlit web UI. It integrates with Google Gemini for high-quality responses grounded in a telecom knowledge base.
 
+> Looking for the complete enhancement details? See `docs/ENHANCEMENTS.md`.
+
 ## 🎯 Overview
 
 This app helps telecom architects and engineers make informed design decisions. It combines:

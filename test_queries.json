@@ -1,0 +1,34 @@
+{
+  "queries": [
+    {
+      "id": "q1",
+      "query": "What are the key components of a 5G network architecture?",
+      "relevant_docs": ["tmf629_customer.pdf", "5g.md"],
+      "topic": "5g"
+    },
+    {
+      "id": "q2",
+      "query": "Compare monolithic and microservices architectures",
+      "relevant_docs": ["monolithic.md", "microservices.md"],
+      "topic": "architecture_patterns"
+    },
+    {
+      "id": "q3",
+      "query": "What is the TM Forum standard for product ordering?",
+      "relevant_docs": ["tmf622_ordering.pdf"],
+      "topic": "tmf_standards"
+    },
+    {
+      "id": "q4",
+      "query": "How does hybrid retrieval work in RAG systems?",
+      "relevant_docs": ["microservices.md", "README.md"],
+      "topic": "rag"
+    },
+    {
+      "id": "q5",
+      "query": "What are cloud-native design principles?",
+      "relevant_docs": ["microservices.md", "README.md"],
+      "topic": "cloud_native"
+    }
+  ]
+}

@@ -129,12 +129,13 @@ def get_architecture_advice_with_rag(
     use_rag: bool = True,
     include_citations: bool = True,
     conversation_context: List[Dict] = None
-) -> Tuple[str, List[Dict]]:
+) -> Tuple[str, str, List[Dict]]:
     """
     Get architecture advice using RAG with citations and conversation history.
     Uses Google Gemini API for LLM responses.
     """
     citations = []
+    context = ""
 
     # Build conversation history
     conversation_prompt = ""
@@ -166,17 +167,39 @@ Provide a detailed, accurate answer based on the context provided. Reference sou
     try:
         logger.info(f"Processing query: {prompt[:100]}...")
         result = call_gemini_api(full_prompt)
-        
+
         # Handle Gemini response structure
         if "candidates" in result and len(result["candidates"]) > 0:
             candidate = result["candidates"][0]
-            if "content" in candidate and "parts" in candidate["content"]:
+            # Standard path: content.parts -> text
+            if "content" in candidate and isinstance(candidate["content"], dict) and "parts" in candidate["content"]:
                 answer = candidate["content"]["parts"][0]["text"]
                 logger.info("Successfully generated response")
             else:
-                error_msg = "Unexpected response structure from Gemini API"
-                logger.error(f"{error_msg}: {result}")
-                answer = f"Error: {error_msg}. Please try again."
+                # Attempt to extract any string value from the candidate content as a fallback
+                def _extract_text(obj):
+                    if isinstance(obj, str):
+                        return obj
+                    if isinstance(obj, dict):
+                        for v in obj.values():
+                            text = _extract_text(v)
+                            if text:
+                                return text
+                    if isinstance(obj, list):
+                        for item in obj:
+                            text = _extract_text(item)
+                            if text:
+                                return text
+                    return None
+
+                text_fallback = _extract_text(candidate.get("content")) or _extract_text(candidate)
+                if text_fallback:
+                    answer = text_fallback
+                    logger.warning("Gemini response did not follow expected structure; used fallback text extraction.")
+                else:
+                    error_msg = "Unexpected response structure from Gemini API"
+                    logger.error(f"{error_msg}: {result}")
+                    answer = f"Error: {error_msg}. Please try again."
         else:
             error_msg = "No candidates in Gemini API response"
             logger.warning(f"{error_msg}: {result}")
@@ -185,27 +208,27 @@ Provide a detailed, accurate answer based on the context provided. Reference sou
         # Log query for analytics
         topics = [c['topic'] for c in citations] if citations else []
         log_query(prompt, topics)
-        return answer, citations
-        
+        return answer, context, citations
+
     except requests.exceptions.Timeout:
         error_msg = f"Request timed out after {REQUEST_TIMEOUT} seconds. The service may be experiencing high load."
         logger.error(error_msg)
-        return f"⚠️ {error_msg} Please try again in a moment.", citations
-        
+        return f"⚠️ {error_msg} Please try again in a moment.", context, citations
+
     except requests.exceptions.HTTPError as e:
         error_msg = f"API error occurred: {e.response.status_code}"
         logger.error(f"{error_msg} - {e.response.text}")
-        return f"⚠️ {error_msg}. Please check your API key and try again.", citations
-        
+        return f"⚠️ {error_msg}. Please check your API key and try again.", context, citations
+
     except requests.exceptions.RequestException as e:
         error_msg = "Network error occurred"
         logger.error(f"{error_msg}: {e}")
-        return f"⚠️ {error_msg}. Please check your internet connection and try again.", citations
-        
+        return f"⚠️ {error_msg}. Please check your internet connection and try again.", context, citations
+
     except Exception as e:
         error_msg = "Unexpected error occurred"
         logger.exception(f"{error_msg}: {e}")
-        return f"⚠️ {error_msg}: {str(e)}. Please contact support if this persists.", citations
+        return f"⚠️ {error_msg}: {str(e)}. Please contact support if this persists.", context, citations
 
 
 # --- Minimal retrieve_context_with_citations implementation ---
@@ -627,7 +650,7 @@ def upload_directory(directory_path: str, topic: str = "batch", domain: str = "t
         return 0
 
 
-def compare_architectures(arch1: str, arch2: str, context: str) -> str:
+def compare_architectures(arch1: str, arch2: str, context: Optional[str] = "telecom systems") -> str:
     """
     Generate a detailed side-by-side comparison of two architectures.
     
@@ -653,7 +676,11 @@ Include the following aspects:
 
 Format as a clear comparison table."""
     
-    response, _ = get_architecture_advice_with_rag(query, use_rag=True)
+    # Ensure context is set
+    if not context:
+        context = "telecom systems"
+
+    response, _, _ = get_architecture_advice_with_rag(query, use_rag=True)
     return response
 
 
@@ -839,7 +866,7 @@ def interactive_cli():
             
             # Regular query
             print("\n⚙️  Processing your question...\n")
-            response, citations = get_architecture_advice_with_rag(
+            response, context, citations = get_architecture_advice_with_rag(
                 user_input, 
                 use_rag=True,
                 conversation_context=conversation

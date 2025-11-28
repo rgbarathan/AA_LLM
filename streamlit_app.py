@@ -129,7 +129,7 @@ if mode == "💬 Chat":
         # Get response
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                response, citations = get_architecture_advice_with_rag(
+                response, context, citations = get_architecture_advice_with_rag(
                     user_input,
                     use_rag=use_rag,
                     include_citations=show_citations,

@@ -226,35 +226,10 @@ add_knowledge_to_db(docs, meta)
 - Hybrid search combines semantic similarity (ChromaDB) and keyword BM25
 - Citations display topic, domain, a text preview, and relevance (normalized score)
 
+
 ## 🧪 Testing & Evaluation
 
-The app includes a comprehensive testing framework with metrics and evaluation guides:
-
-- **TESTING_QUICK_START.md** — Fast setup and common test commands (5 min)
-- **TESTING_AND_EVALUATION.md** — Complete metrics, rubrics, and evaluation frameworks (400+ lines)
-- **TESTING_ROADMAP.md** — Visual guide with command reference and coverage matrix
-- **TESTING_SUMMARY.md** — Test results and recommended testing workflow
-- **tests/** — Unit tests for KB, retrieval, integration, and performance
-- **run_tests.py** — Master test runner (works with or without pytest)
-
-### Quick Test
-```bash
-# Sanity check
-python3 -c "from telecom_advisor_enhanced import collection; print(f'KB: {collection.count()} chunks')"
-
-# Run all tests
-python3 run_tests.py
-
-# Or individual modules
-python3 -m tests.test_knowledge_base
-python3 -m tests.test_integration
-python3 -m tests.test_performance
-```
-
-### Key Metrics
-- **Retrieval**: Precision ≥0.7, Recall ≥0.6, MRR ≥0.8, NDCG ≥0.75
-- **Generation**: Relevance 4+/5, Factuality 4+/5, Citation coverage ≥80%
-- **Performance**: Retrieval <500ms avg, Generation <15s avg, KB >100 chunks
+Testing and evaluation artifacts (automated tests, evaluation scripts and detailed test docs) have been removed from this repository. The core application and runtime scripts remain. For quick checks, use the runtime sanity commands in the "Quick Start" section above (KB count, manual queries via Streamlit). If you need the full test harness restored, I can re-add it or provide a trimmed version on request.
 
 ## 🛡️ Security
 

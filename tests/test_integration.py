@@ -23,7 +23,7 @@ def test_chat_workflow():
     print("Testing chat workflow...")
     
     query = "What is a monolithic architecture?"
-    answer, citations = get_architecture_advice_with_rag(query)
+    answer, context, citations = get_architecture_advice_with_rag(query)
     
     assert answer and len(answer) > 50, f"Answer too short: {len(answer)} chars"
     assert citations and len(citations) > 0, f"No citations: {len(citations)}"

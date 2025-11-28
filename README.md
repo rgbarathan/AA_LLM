@@ -2,8 +2,7 @@
 
 AI-powered telecom architecture advisor using Retrieval-Augmented Generation (RAG), hybrid search, and a Streamlit web UI. It integrates with Google Gemini for high-quality responses grounded in a telecom knowledge base.
 
-> Looking for the complete enhancement details? See `docs/ENHANCEMENTS.md`.  
-> **Testing & Evaluation?** See `TESTING_QUICK_START.md` or `TESTING_AND_EVALUATION.md`.
+> Looking for the complete enhancement details? See `docs/ENHANCEMENTS.md`.
 
 ## 🎯 Overview
 
@@ -51,8 +50,10 @@ User Query → [Hybrid Search] → Context + History → Prompt → Gemini → A
 
 ### Prerequisites
 
-- macOS/Linux/Windows with Python 3.9+
-- A Google Gemini API key
+- **Python 3.9+** (check with `python3 --version`)
+- **pip** (package manager, usually comes with Python)
+- **Git** (for cloning, optional)
+- **A Google Gemini API key** (free tier available)
 
 ### Get a Gemini API key (first time)
 
@@ -68,26 +69,56 @@ Notes:
 
 ### Setup
 
+**Step 1: Clone or navigate to the project directory**
 ```bash
-# 1) Create a virtual environment (optional but recommended)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# 2) Install dependencies
-pip install -r requirements.txt
-
-# 3) Configure your API key
-cp .env.example .env
-# edit .env and set GEMINI_API_KEY=...
-
-# 4) Start the web app
-streamlit run streamlit_app.py
-
-# Alternative: run the enhanced script (launches Streamlit and has CLI fallback)
-python telecom_advisor_enhanced.py
+# If cloning from GitHub:
+git clone https://github.com/rgbarathan/AA_LLM.git
+cd AA_LLM
 ```
 
-If you prefer one command setup, see SETUP_SECURITY.md or run `./setup_secure.sh`.
+**Step 2: Create a virtual environment**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+**Step 3: Install dependencies**
+```bash
+pip install -r requirements.txt
+```
+
+**Step 4: Configure your Gemini API key**
+```bash
+# Copy the example env file
+cp .env.example .env
+
+# Edit .env and add your GEMINI_API_KEY
+# Example:
+# GEMINI_API_KEY=your_actual_api_key_here
+```
+
+**Step 5: Start the application**
+
+Option A — Web Interface (Recommended):
+```bash
+streamlit run streamlit_app.py
+# Opens automatically at http://localhost:8501
+```
+
+Option B — CLI Mode:
+```bash
+python telecom_advisor_enhanced.py
+# Interactive command-line interface with fallback to Streamlit
+```
+
+**Automated Setup (Optional)**
+```bash
+# For a more automated setup with security checks:
+chmod +x setup_secure.sh
+./setup_secure.sh
+```
+
+See `SETUP_SECURITY.md` for additional security configuration details.
 
 ## � What you can do
 
@@ -114,14 +145,21 @@ When using interactive CLI mode (`python telecom_advisor_enhanced.py`):
 
 - `telecom_advisor_enhanced.py` — Core RAG logic, Gemini integration, CLI, dynamic knowledge loading
 - `streamlit_app.py` — Web UI (Chat, Compare, Upload, Analytics, Export)
-- `knowledge_base/` — Markdown/PDF/DOCX files with domain knowledge
+- `requirements.txt` — Python dependencies (install with `pip install -r requirements.txt`)
+- `.env.example` — Template for environment variables (copy to `.env` and fill in your API key)
+- `knowledge_base/` — Markdown/PDF/DOCX files with domain knowledge (auto-loaded on startup)
 - `knowledge_sources.json` — Config for external source auto-loading
-- `knowledge_sources.example.json` — Template for external source config
-- `AA_LLM.py` — Minimal Gemini example
-- `telecom_advisor_rag.py` — Original/simple RAG demo
-- `requirements.txt` — Python dependencies
+- `knowledge_sources.example.json` — Template for custom knowledge source configuration
+- `chroma_db/` — Vector database (auto-created, persistent)
+- `telecom_advisor.log` — Application logs
 - `analytics.json` — Query analytics (auto-created)
-- `chroma_db/` — Vector store (auto-created, persistent)
+
+### Optional/Legacy Files
+- `AA_LLM.py` — Minimal Gemini API example
+- `telecom_advisor_rag.py` — Original/simple RAG demo
+- `SECURITY.md` — Security best practices
+- `SETUP_SECURITY.md` — Automated security setup guide
+- `docs/ENHANCEMENTS.md` — Detailed enhancement documentation
 
 ## ⚙️ Configuration
 
@@ -229,7 +267,26 @@ add_knowledge_to_db(docs, meta)
 
 ## 🧪 Testing & Evaluation
 
-Testing and evaluation artifacts (automated tests, evaluation scripts and detailed test docs) have been removed from this repository. The core application and runtime scripts remain. For quick checks, use the runtime sanity commands in the "Quick Start" section above (KB count, manual queries via Streamlit). If you need the full test harness restored, I can re-add it or provide a trimmed version on request.
+Testing and evaluation artifacts (automated tests, evaluation scripts, and detailed test docs) have been removed from this repository. The core application and runtime scripts remain functional and fully operational. 
+
+For quick sanity checks:
+```bash
+# 1. Verify Python and dependencies installed
+python3 --version
+pip list | grep -E "chromadb|streamlit|requests"
+
+# 2. Check if GEMINI_API_KEY is configured
+grep GEMINI_API_KEY .env
+
+# 3. Test knowledge base initialization
+python3 -c "from telecom_advisor_enhanced import collection; print(f'KB chunks: {collection.count()}')"
+
+# 4. Run a quick manual test via the web interface
+streamlit run streamlit_app.py
+# Try a sample query: "What is a microservices architecture?"
+```
+
+If you need comprehensive automated testing restored, please let me know.
 
 ## 🛡️ Security
 
@@ -237,13 +294,68 @@ Never commit secrets. Use `.env` and see `SETUP_SECURITY.md` and `SECURITY.md` f
 
 ## 🧪 Troubleshooting
 
-- **Missing API key**: ensure `.env` has `GEMINI_API_KEY` and the venv is active
-- **Streamlit not found**: `pip install -r requirements.txt`
-- **ChromaDB errors**: delete `chroma_db/` to rebuild if corrupted (data loss)
-- **Knowledge not loading**: verify `knowledge_sources.json` paths and `enabled: true`
-- **Duplicate chunks**: Each reload adds new chunks; delete `chroma_db/` for fresh start
-- **PDF extraction fails**: ensure PDFs are text-based (not scanned images)
-- **Test failures**: See TESTING_AND_EVALUATION.md > Troubleshooting Tests section
+### Common Issues
+
+**1. Missing API key error**
+```
+GEMINI_API_KEY not found in environment variables
+```
+Solution:
+- Create a `.env` file in the project root (use `.env.example` as template)
+- Set `GEMINI_API_KEY=your_actual_key_here`
+- Ensure the venv is activated
+
+**2. Streamlit command not found**
+```
+command not found: streamlit
+```
+Solution:
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+**3. ChromaDB errors or corrupted vector store**
+```
+ChromaDB initialization error
+```
+Solution:
+```bash
+# Backup any important data, then delete the vector store
+rm -rf chroma_db/
+# Restart the app to rebuild
+streamlit run streamlit_app.py
+```
+
+**4. Knowledge base not loading**
+- Verify `knowledge_sources.json` paths exist and are correct
+- Ensure `enabled: true` for sources you want loaded
+- Check file permissions and formats (PDF text-based, not scanned images)
+- For new knowledge, place files in `knowledge_base/` directory
+
+**5. PDF extraction fails**
+Solution:
+- Ensure PDFs are text-based (not scanned images)
+- Convert scanned PDFs using OCR tools (tesseract, etc.) first
+- Try uploading via the UI with different PDFs to isolate the issue
+
+**6. Slow response or timeout errors**
+- Check your internet connection
+- Verify Gemini API quota hasn't been exceeded
+- Reduce query complexity (shorter, more specific questions)
+- Increase `REQUEST_TIMEOUT` in `telecom_advisor_enhanced.py` if needed
+
+**7. Environment activation issues**
+```bash
+# macOS/Linux
+source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
+
+# Verify activation (prompt should show (.venv))
+which python  # Should point to .venv/bin/python
+```
 
 ## � License
 
